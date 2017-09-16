@@ -1,0 +1,1168 @@
+#!/usr/bin/env python
+from __future__ import division
+import math
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import pyautogui
+import pygame
+import random
+import rospy
+import sys
+import time
+from geometry_msgs.msg import Pose
+from math import cos, sin, tan, atan, pi, sqrt
+from numpy.linalg import inv
+from pygame import gfxdraw
+from std_msgs.msg import UInt8, String
+from scipy.spatial import distance
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++
+# PRESET VARIABLE VALUES
+# ++++++++++++++++++++++++++++++++++++++++++++++++
+
+agent_val_temp = 150 # NUMBER OF AGENTS
+diameter = 5 # DIAMETER VALUE
+scale_val = 3.0 # SCALAR VALUE
+Two_D_angle_rad = 0 # ANGLE VALUE (RADIANS)
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++
+# ++++++++++++++++++++++++++++++++++++++++++++++++
+
+# determines screen resolution
+x_pix, y_pix = pyautogui.size()
+
+# initializes pygame
+pygame.init()
+
+# color variables (RGB)
+black = (0,0,0) 
+blue = (0, 0, 255)
+green = (0, 255, 0)
+red = (255, 0, 0)
+white = (255,255,255)
+
+
+# grid image scale
+x_grid = int(670 * (x_pix/3000))
+y_grid = int(666 * (y_pix/2000))
+
+# background class
+class Grid(pygame.sprite.Sprite):
+    def __init__(self, image_file, location):
+		pygame.sprite.Sprite.__init__(self)  #call Sprite initializer
+		self.image = pygame.image.load(image_file)
+		self.image = pygame.transform.scale(self.image, (x_grid, y_grid))
+		self.rect = self.image.get_rect()
+		self.rect.left, self.rect.top = location
+
+class Background(pygame.sprite.Sprite):
+    def __init__(self, image_file, location):
+		pygame.sprite.Sprite.__init__(self)  #call Sprite initializer
+		self.image = pygame.image.load(image_file)
+		self.image = pygame.transform.scale(self.image, (x_pix, y_pix))
+		self.rect = self.image.get_rect()
+		self.rect.left, self.rect.top = location
+
+
+# arrays
+distribute_array = [0,0] # the distribution of agents after scaling, rotation, and agent decision
+distribute_sim_array = [0,0] # 
+distribute_sim_centroid = [0,0] # the distribution relative to the centroid
+grid_centroid = [int((x_grid/2) + (0.0333 * x_pix)),int((y_grid/2) + (0.275 * y_pix))] # the grid centroid
+grid_rel_centroid = [0,0] # the grid shape array relative to the centroid
+line_distance_array = [0] # the array of line distances
+point_array = [0,0] # the vertices on the grid
+rotation_grid_point_array = [0,0] # the array of rotated points on the grid
+rotation_sim_point_array = [0,0] # the array of rotated points on the environment
+scale_map_array = [0,0] # the array of scaled points
+
+# boolean variables
+agent_change = False
+Decrease_1 = False 
+diameter_change = False
+distribute_change = False
+DOWN = False
+drawing = True
+enviro = False
+first = True
+first_scale = True
+first_status = True
+form_control = False
+Increase_1 = False
+interfaceExit = False
+LEFT = False
+line_start = False
+MIDDLE = False
+RIGHT = False
+rot_change = False
+scale_change = False
+Shape_Confirm_1 = False
+shape = False
+sim_map = False
+UP = False
+
+
+
+# integer variables
+agents = 0 # user input of number of agents
+agent_counter = 0 # agent value counted based on distribution
+agent_val = 0 # the chosen agent value
+comm_range=400
+count = 0 
+curr_line_distance = 0 # the current position along shape with regard to 1-D line
+curr_point = 0 # the point with respect to the shape along a 1-D line
+diameter_temp = 1 # the incrementing/decrementing diameter value
+current_agent_position = 0 # the distribution sum to determine current agent position relative to shape in a 1-D line
+left_click_counter = 0 # the vertice counter
+line_count = 0 # the amount of added lines (not including final line)
+line_dist_val = 0 # the current line segment distance value
+M = 0
+mouse_x = 0 # the current mouse position in the x
+mouse_y = 0 # the current mouse position in the y
+perimeter = 0 # the total perimeter of the grid shape
+scale_val_temp = 1.0 # the incrementing/decrementing scalar value
+Two_D_angle_deg = 0 # the user-friendly rotation angle
+time_start = 0.0 # the starting time value
+x_pix = 0
+y_pix = 0
+
+# string variables
+curr_instr = ' ' # the changing instruction string
+curr_msg = ' ' # the changing message string
+curr_msg_temp = ' '
+instruct_string = "Draw a shape on the grid." # the intial instruction string
+update_msg = ' '
+
+# determines screen resolution
+x_pix, y_pix = pyautogui.size()
+
+# sets pixel range
+screen = pygame.display.set_mode((int(0.833 * x_pix),int(0.875 * y_pix)))
+
+# interface title
+pygame.display.set_caption('Myo-vement')
+pygame.display.update()
+
+# image backgrounds
+Screen_BackGround = Background('Circuit_background.jpg', [0,0])
+Grid_BackGround = Grid('grid_picture.png', [0.033 * x_pix, 0.275 * y_pix])
+
+# creates the layout for the interface 
+screen.fill([255, 255, 255])
+screen.blit(Screen_BackGround.image, Screen_BackGround.rect)	
+screen.blit(Grid_BackGround.image, Grid_BackGround.rect)	
+pygame.draw.rect(screen, green, [int(0.333 * x_pix) - 5, int(0.1 * y_pix) - 5, int(0.467 * x_pix) + 10, int(0.675 * y_pix) + 10]) #sim outline
+pygame.draw.rect(screen, black, [int(0.333 * x_pix), int(0.1 * y_pix), int(0.467 * x_pix), int(0.675 * y_pix)]) #sim background
+pygame.draw.rect(screen, green, [int(0.0167 * x_pix) - 5, int(0.8 * y_pix) - 5, int(0.8 * x_pix) + 10, int(0.05 * y_pix) + 10]) #status outline
+pygame.draw.rect(screen, black, [int(0.0167 * x_pix), int(0.8 * y_pix), int(0.8 * x_pix), int(0.05 * y_pix)]) #status background
+pygame.draw.rect(screen, green, [int(0.0167 * x_pix) - 5, int(0.025 * y_pix) - 5, int(0.8 * x_pix) + 10, int(0.05 * y_pix) + 10]) #instruction background
+pygame.draw.rect(screen, black, [int(0.0167 * x_pix), int(0.025 * y_pix), int(0.8 * x_pix), int(0.05 * y_pix)]) #instruction background
+font = pygame.font.SysFont(None, int(70 * ((x_pix + y_pix)/5000))) # font object
+
+
+
+# =================================================================================
+# Function Name: screen_reapply
+# =================================================================================
+# Description: This functions wipes the entire interface clean by reapplying 
+#			   featurs of the UI
+#
+# =================================================================================
+def screen_reapply():
+	screen.fill([255, 255, 255])
+	screen.blit(Screen_BackGround.image, Screen_BackGround.rect)	
+	screen.blit(Grid_BackGround.image, Grid_BackGround.rect)	
+	pygame.draw.rect(screen, green, [995,195,1410,1360]) #sim outline
+	pygame.draw.rect(screen, black, [1000,200, 1400,1350]) #sim background
+	pygame.draw.rect(screen, green, [45,1595,2410,110]) #status outline
+	pygame.draw.rect(screen, black, [50,1600,2400,100]) #status background
+	pygame.draw.rect(screen, green, [45,45,2410,110]) #instruction outline
+	pygame.draw.rect(screen, black, [50,50,2400,100]) #instruction background
+
+
+
+# =================================================================================
+# Function Name: reset
+# =================================================================================
+# Description: This functions completey resets the entire program
+#
+# =================================================================================
+def reset():
+	os.execv(__file__, sys.argv)
+
+
+
+# =================================================================================
+# Function Name: x_value_check
+# =================================================================================
+# Description: This functions accepts the x-values of the point array and checks 
+#			   whether it resides within the boundary. If any of the points 
+#			   evaluate to false, the function returns false	
+#
+# =================================================================================
+def x_value_check(x_bound_check):
+	x_check = x_bound_check.clip(min = 0.333 * x_pix , max = 0.8 * x_pix)
+	x_bool = (x_bound_check == x_check)
+	return x_bool.all()
+
+
+
+# =================================================================================
+# Function Name: y_value_check
+# =================================================================================
+# Description: This functions accepts the y-values of the point array and checks 
+#			   whether it resides within the boundary. If any of the points 
+#			   evaluate to false, the function returns false	
+#
+# =================================================================================
+def y_value_check(y_bound_check):
+	y_check = y_bound_check.clip(min = 0.1 * y_pix, max = 0.775 * y_pix)
+	y_bool = (y_bound_check == y_check)
+	return y_bool.all()
+
+
+
+# =================================================================================
+# Function Name: instruction_msg
+# =================================================================================
+# Description: This function places the instruction message with the passed string
+#			   and location determined
+#
+# =================================================================================
+def instruction_msg(msg,color):
+	screen_text = font.render(msg, True, color)
+	screen.blit(screen_text, [int(0.0167 * x_pix), int(0.025 * y_pix)])
+
+
+# =================================================================================
+# Function Name: status_msg
+# =================================================================================
+# Description: This function places the status message with the passed string
+#			   and location determined
+#
+# =================================================================================
+def status_msg(msg, color):
+	screen_text = font.render(msg, True, color)
+	screen.blit(screen_text, [int(0.0167 * x_pix), int(0.8 * y_pix)])
+
+
+
+# =================================================================================
+# Function Name: grid_boundaries
+# =================================================================================
+# Description: This functions accepts the x-values of the point array and checks 
+#			   whether it resides within the boundary. If any of the points 
+#			   evaluate to false, the function returns false	
+#
+# =================================================================================
+def grid_boundaries(x_arg_val, y_arg_val):
+	if((x_arg_val >= 0.0333 * x_pix) and (x_arg_val <= 0.2567 * x_pix) and (y_arg_val >= 0.275 * y_pix) and (y_arg_val <= 0.6075 * y_pix)):
+		return True
+	else:
+		return False
+
+
+
+# =================================================================================
+# Function Name: enviro_boundaries
+# =================================================================================
+# Description: This functions accepts the x-values of the point array and checks 
+#			   whether it resides within the boundary. If any of the points 
+#			   evaluate to false, the function returns false	
+#
+# =================================================================================
+def enviro_boundaries(x_arg_val, y_arg_val):
+	if((x_arg_val >= 0.333 * x_pix) and (x_arg_val <= 0.8 * x_pix) and (y_arg_val >= 0.1 * y_pix) and (y_arg_val <= 0.775 * y_pix)):
+		return True
+	else:
+		return False
+
+
+
+# function which accepts the desired instruction message as an argument to be displayed on the screen
+def instructions(string):
+	instruction_msg(string,green)
+
+
+# =================================================================================
+# Function Name: reapply_grid
+# =================================================================================
+# Description: This function wipes the grid window clean by reapplying
+#			   the grid image to the specified location	
+#
+# =================================================================================
+def reapply_grid():
+	screen.blit(Grid_BackGround.image, Grid_BackGround.rect)
+
+
+
+# =================================================================================
+# Function Name: reapply_status
+# =================================================================================
+# Description: This function wipes the status window clean by reapplying
+#			   the black rectangle to the specified location	
+#
+# =================================================================================
+def reapply_status():
+	pygame.draw.rect(screen, black, [int(0.0167 * x_pix), int(0.8 * y_pix), int(0.8 * x_pix), int(0.05 * y_pix)]) #status background
+
+
+
+# =================================================================================
+# Function Name: reapply_instruct
+# =================================================================================
+# Description: This function wipes the instruction window clean by reapplying
+#			   the black rectangle to the specified location	
+#
+# =================================================================================
+def reapply_instruct():
+	pygame.draw.rect(screen, black, [int(0.0167 * x_pix), int(0.025 * y_pix), int(0.8 * x_pix), int(0.05 * y_pix)]) #instruction background
+	
+
+
+# =================================================================================
+# Function Name: reapply_sim
+# =================================================================================
+# Description: This function wipes the environment window clean by reapplying
+#			   the black rectangle to the specified location	
+#
+# =================================================================================
+def reapply_sim():
+	pygame.draw.rect(screen, black, [int(0.333 * x_pix), int(0.1 * y_pix), int(0.467 * x_pix), int(0.675 * y_pix)]) #sim background
+
+
+
+# =================================================================================
+# Function Name: change_instruction_message
+# =================================================================================
+# Description: This function changes the instruction message by taking the 
+#			   string parameter passed as an argument, wiping the instruction
+#			   window clean, and passing the desired instruction string as an 
+#		   	   argument to the instruction_msg function
+#
+# =================================================================================
+def change_instruction_message(msg_str):
+	reapply_instruct()
+	instruction_msg(msg_str, green)
+
+
+
+# =================================================================================
+# Function Name: change_status_message
+# =================================================================================
+# Description: This function changes the status message by taking the 
+#			   string parameter passed as an argument, wiping the status
+#			   window clean, and passing the desired status string as an 
+#		   	   argument to the status_msg function
+#
+# =================================================================================
+def change_status_message(shape_msg):
+	global update_msg
+
+	reapply_status()
+	update_msg = update_msg + shape_msg
+	status_msg(update_msg, green)
+
+
+
+# =================================================================================
+# Function Name: first_point
+# =================================================================================
+# Description: This function takes the current x and y pixel position of the mouse
+#			   and sets it to the point_array. The point is then plotted on the 
+#			   grid.
+#
+# =================================================================================
+def first_point():
+	global first
+	global point_array
+	global line_count
+	global instruct_string
+
+	# clears the environment
+	reapply_sim()
+
+	# sets the line_count variable to zero
+	line_count = 0
+	
+	# the initial mouse position is added to the point_array
+	point_array = np.vstack([point_array,[mouse_x, mouse_y]]) 
+
+	# the initialzed [0,0] element of the array is eliminated
+	point_array = np.delete(point_array, (0), 0)
+
+	# creates a circle point for the desired origin
+	pygame.draw.circle(screen, white, point_array[line_count], 5)
+	first = False
+
+
+
+# =================================================================================
+# Function Name: drag
+# =================================================================================
+# Description: This function displays the "dragging" motion of the line-to-point
+#			   to assist the user with shape creation by wiping the grid and 
+#			   creating the line and point based on the mouse's current position	
+#
+# =================================================================================
+def drag():
+	reapply_grid()
+	pygame.draw.circle(screen, white, point_array[line_count], 5) 			
+	pygame.draw.circle(screen, white, (mouse_x, mouse_y), 5)
+	pygame.draw.line(screen, white,  point_array[line_count], (mouse_x, mouse_y))
+
+	
+
+# =================================================================================
+# Function Name: redraw
+# =================================================================================
+# Description: This function takes continously wipes the grid and reapplies the 
+# 			   points and lines of the already plotted points
+#
+# =================================================================================
+def redraw():
+	for i in range(line_count):	
+		pygame.draw.circle(screen, white, point_array[0], 5) 			
+		pygame.draw.line(screen, white, point_array[i], point_array[i+1])
+		pygame.draw.circle(screen, white, point_array[i], 5) 	
+
+
+
+# =================================================================================
+# Function Name: add_line
+# =================================================================================
+# Description: This function adds the plotted points to the point_array and draws
+#			   the line and point to the grid
+#
+# =================================================================================
+def add_line():
+	global line_count
+	global point_array
+
+	# increments the line_count value
+	line_count += 1
+
+	# stores the current position to the shape point array
+	point_array = np.vstack([point_array,[mouse_x, mouse_y]]) 
+
+	# draws the line and point to the desired position
+	pygame.draw.line(screen, white, point_array[line_count-1], (mouse_x, mouse_y))
+	pygame.draw.circle(screen, white, (mouse_x, mouse_y), 5)
+
+
+
+# =================================================================================
+# Function Name: end_shape
+# =================================================================================
+# Description: This function adds the finals point to the point_array, performs
+#			   calculations to determine the centroid, points relative to centroid
+#			   the shape relative to the center of the grid, then moves the shape
+#			   to the grid center. This function also contains functions to 
+# 			   determine the shape, line distances, and perimeter.			 
+#
+# =================================================================================
+def end_shape():
+	global line_start
+	global shape
+	global first
+	global point_array
+	global sim_map
+	global instruct_string
+	global centroid
+	global ref_point_array
+	global enviro
+	global drawing
+	global grid_rel_centroid
+	global RIGHT
+	global line_count
+	global curr_instr
+
+	# stores the current position and last vertice
+	point_array = np.vstack([point_array,[mouse_x, mouse_y]]) 
+
+	# calculates the shape centroid 
+	centroid = np.mean(point_array, axis = 0, dtype = int)
+
+	# stores the starting point which is the end point of the last line
+	point_array = np.vstack([point_array,point_array[0]]) 
+
+	# finds the vertice array relative to the centroid
+	ref_point_array = point_array - (np.tile(centroid, ((line_count+3),1)))
+
+	# creates a shape array relative to the center of the grid
+	grid_rel_centroid = ref_point_array + (np.tile(grid_centroid, ((line_count+3),1)))
+
+	# sets the shape creation boolean to false
+	line_start = False
+
+	# clears the grid
+	reapply_grid()
+
+	# draws the polygon to the center of the grid
+	pygame.draw.polygon(screen, white, grid_rel_centroid, 3)
+
+	# indicates the readiness of a new shape
+	first = True
+	sim_map = True
+	shape = True
+
+	# calls the shape_det function to indicate the current shape on the status window
+	shape_det()
+
+	# calls the line_distance function to calculate the line distance and shape perimeter
+	line_distance()
+
+	# activates the environment mapping function
+	enviro = True
+
+	# deactivates the shape drawing boolean
+	drawing = False
+	RIGHT = False
+
+	instruct_string = 'Shape Successfully Drawn! Scroll-up or squeeze fist in environment to map shape' 
+	change_instruction_message(instruct_string)
+	curr_instr = ' '
+
+
+
+# =================================================================================
+# Function Name: shape_det
+# =================================================================================
+# Description: This function determines the created shape based on the amount of 
+#			   plotted points. The determined shape will then be printed in the 
+# 			   status window.
+#
+# =================================================================================
+def shape_det():
+	global shape
+	global curr_msg
+	global line_count
+
+	# indicates a triangle
+	if shape and line_count == 1:
+		curr_msg = ' Shape: Triangle'
+		change_status_message(curr_msg)
+		shape = False
+
+	# indicates a quadrilateral
+	elif shape and line_count == 2:
+		curr_msg = ' Shape: Quadrilateral'
+		change_status_message(curr_msg)
+		shape = False
+	
+	# indicates a 5+ sided polygon
+	elif shape and line_count > 2:
+		side_val = line_count + 2
+		curr_msg = ' Shape: ' + str(side_val) + '-sided Polygon'
+		change_status_message(curr_msg)
+		shape = False
+	
+
+
+# =================================================================================
+# Function Name: map_shape
+# =================================================================================
+# Description: This function takes the desired centroid position within the 
+#			   environment based on the mouse position and creates an array of the
+#			   shape within the environment. The shape is then drawn to the 
+#			   environment.
+#
+# =================================================================================
+def map_shape():
+	global instruct_string
+	global map_point_array
+	global map_center
+	global scale_map_array
+	global enviro
+	
+	# assigns the desired centroid position based on the current cursor position
+	map_center = mouse_x, mouse_y
+	
+	# redefines the points of the shape relative to the desired centroid position
+	map_point_array = (np.array(ref_point_array)) + np.tile(map_center,(line_count + 3, 1))
+	scale_map_array = (np.array(map_point_array)) - np.tile(map_center,(line_count + 3, 1))
+
+	# draws the shape to the environment
+	pygame.draw.polygon(screen, white, map_point_array, 3)
+	
+	# deactivates environment mapping boolean
+	sim_map = False
+	enviro = False
+
+
+
+# =================================================================================
+# Function Name: line_distance
+# =================================================================================
+# Description: This function calculates each line distance and the perimeter
+#			   based on the calculated line distances.
+#
+# =================================================================================
+def line_distance():
+	global line_distance_array
+	global perimeter
+
+	# indexes through point array and measures the distances while calculating the perimeter
+	count = 0
+	for i in range (line_count + 2):
+		x_2 = point_array[i+1, 0]
+		y_2 = (point_array[i+1, 1])
+		x_1 = point_array[i, 0]
+		y_1 = (point_array[i, 1])
+		distance_val = math.sqrt(((math.pow((x_2 - x_1), 2)) + (math.pow((y_2 - y_1),2))))
+		perimeter += distance_val
+		line_distance_array = np.vstack([line_distance_array, [distance_val]])
+
+	# removes the initial [0,0]	element of the array
+	line_distance_array = np.delete(line_distance_array,0,0)	
+
+
+
+# =================================================================================
+# Function Name: scale_factor
+# =================================================================================
+# Description: This function calculates the shape's scalar value and displays
+#			   the shape's current scalar value to the environment as long as the
+#			   shape resides within the environment. 
+#
+# =================================================================================
+def scale_factor():
+	global scale_val
+	global scale_map_array
+	global first_scale
+	global instruct_string
+	global scale_map_temp
+	global Increase
+	global Decrease
+	global first_status
+
+	# sets the ' || Scale Value: ' to the status window on the first iteration
+	if first_status:
+		stat_msg = curr_msg + ' || Scale Value: ' + str(scale_val_temp)
+		change_status_message(stat_msg)
+		first_status = False
+
+	# scales the point values based on the input value
+	scale_map_array = (np.array(scale_map_array) * scale_val)
+
+	# remaps the scaled points to the screen, relative to the desired centroid position		
+	scale_map_array = np.array(scale_map_array) + np.tile(map_center,(line_count+3, 1))
+
+	# checks if the calculated values are within the boundaries and displays the current values to the interface
+	if (x_value_check(scale_map_array[:,0])) == True and (y_value_check(scale_map_array[:,1])) == True and (Shape_Confirm_1 or Increase_1 or Decrease_1):
+		reapply_sim() 
+		pygame.draw.polygon(screen, white, scale_map_array, 3)
+		pygame.display.update()
+		pygame.time.delay(1500)
+		
+	# if the calculated value is not within the boundaries, the values are not displayed	
+	elif (x_value_check(scale_map_array[:,0])) == False or (y_value_check(scale_map_array[:,1])) == False:
+		instruct_string = "Adjust to valid scalar value. " + curr_instr
+		change_instruction_message(instruct_string)	
+
+
+# =================================================================================
+# Function Name: rotation_matrix_2D_calc
+# =================================================================================
+# Description: This function takes the current incremented/decremented angle value
+#			   and creates the two-dimensional rotation matrix for the shape
+#
+# =================================================================================
+def rotation_matrix_2D_calc():
+	global rot_mat_2D
+	
+	# calculates the rptation matrix based on the angle iteration
+	rot_mat_2D = [math.cos(Two_D_angle_rad), -(math.sin(Two_D_angle_rad)), math.sin(Two_D_angle_rad), math.cos(Two_D_angle_rad)]
+
+	# converts to a NumPy array and then shapes the array to a 2x2 array
+	rot_mat_2D = np.array(rot_mat_2D)
+	rot_mat_2D = rot_mat_2D.reshape((2,2))
+
+
+
+# =================================================================================
+# Function Name: shape_rotation
+# =================================================================================
+# Description: This function calculates the shape's rotation value and displays
+#			   the shape's current rotation value to the environment and grid as 
+# 			   long as the shape resides within the environment. 
+#
+# =================================================================================
+def shape_rotation():
+	global rotation_sim_point_array
+	global rotation_grid_point_array
+	global Two_D_angle_rad
+	global first_status
+	global curr_instr
+
+	# calculates the rotation matrix
+	rotation_matrix_2D_calc()
+
+	# multiplies scalar value to the point array relative to the centroid 
+	rotation_sim_point_array = (np.array(ref_point_array)) * (scale_val)
+
+	# multiplies the scalar point array relative to the centroid by the rotation matrix
+	rotation_sim_point_array = (np.dot(rotation_sim_point_array, rot_mat_2D))
+
+	# adds the centroid position wih respect to the environment to the scalar point array relative to the centroid
+	rotation_sim_point_array = rotation_sim_point_array +  (np.tile(map_center, ((line_count+3),1)))
+
+	# multiplies the point array relative to the centroid by the rotation matrix
+	rotation_grid_point_array = (np.dot(ref_point_array , rot_mat_2D))
+
+	# adds the centroid position wih respect to the origin to the point array relative to the centroid
+	rotation_grid_point_array = rotation_grid_point_array + (np.tile(grid_centroid, ((line_count+3),1)))
+
+	# checks if the calculated values are within the boundaries and displays the current values to the interface
+	if (x_value_check(rotation_sim_point_array[:,0])) == True and (y_value_check(rotation_sim_point_array[:,1])) == True and (Shape_Confirm_1 or Increase_1 or Decrease_1):
+		reapply_sim()
+		reapply_grid()
+		pygame.draw.polygon(screen, white, rotation_grid_point_array, 3)
+		pygame.draw.polygon(screen, white, rotation_sim_point_array, 3)
+
+	# if the calculated value is not within the boundaries, the values are not displayed	
+	elif (x_value_check(rotation_sim_point_array[:,0])) == False or (y_value_check(rotation_sim_point_array[:,1])) == False:
+		instruct_string = "Choose a valid angle to rotate the shape. " + curr_instr
+		change_instruction_message(instruct_string)
+
+	# updates changes to the screen and holds the updates for 50 ms to control value change	
+	pygame.display.update()
+	pygame.time.delay(50)
+
+
+
+# =================================================================================
+# Function Name: distribution
+# =================================================================================
+# Description: This function calculates the distribution between each agent. The 
+#			   line distances of the manipulated environment shape are then 
+#			   calculated and the angle between two lines are then calculated to
+#			   redistribute the agents from a 1-D line to a 2-D shape with the use
+#			   of a 2-D rotation matrix. 
+#
+# =================================================================================
+def distribute():
+	global agents
+	global curr_msg
+	global Two_D_angle_rad
+	global distribute_array
+	global current_agent_position
+	global agent_distribution
+	global agent_counter
+	global distribution	
+	global curr_line_distance
+	global curr_point
+	global transformation
+	global line_dist_val
+	global diameter
+	global distribute_sim_array
+	global agent_change 
+	global distribute_change 
+	global distribute_sim_centroid
+	global form_control
+	global first_status
+
+	# calculates the distribution between agents based on perimeter and number of agents
+	distribution = (perimeter*scale_val)/agent_val_temp
+
+	# checks if the distribution value is larger than the diameter for simulation purposes
+	if (distribution > diameter) and (diameter > 0):
+
+		curr_msg = curr_msg_temp
+		count = 0
+
+		# calculates the distance of each environment line to find the perimeter of the shape
+		for i in range (line_count + 2):
+			count += 1
+			# takes the first point of the line (x,y)
+			x_1, y_1 = rotation_sim_point_array[i]
+
+			# takes the last point of the line (x,y)
+			x_2, y_2 = rotation_sim_point_array[i+1]
+
+			# calculates the line value using the distance formula
+			line_dist_val = math.sqrt(((math.pow((x_2 - x_1), 2)) + (math.pow((y_2 - y_1),2))))
+
+			# calculates the change in x and change in y based on the two points of the line
+			delta_x = rotation_sim_point_array[i+1,0] - rotation_sim_point_array[i,0]
+			delta_y = rotation_sim_point_array[i+1,1] - rotation_sim_point_array[i,1]
+			if (count == line_count + 2):
+				x_1, y_1 = rotation_sim_point_array[i]
+				x_2, y_2 = rotation_sim_point_array[0]
+				line_dist_val = math.sqrt(((math.pow((x_2 - x_1), 2)) + (math.pow((y_2 - y_1),2))))
+				delta_x = rotation_sim_point_array[0,0] - rotation_sim_point_array[i,0]
+				delta_y = rotation_sim_point_array[0,1] - rotation_sim_point_array[i,1]
+
+			# adds the line values to find the total 1-D line segments
+			curr_line_distance += (line_dist_val)
+
+			# calculates the line's angle 
+			Two_D_angle_rad = math.atan2(delta_y,delta_x)
+
+			# calls the rotation matrix function to realign each point from 1-Dimension to 2-Dimensions
+			rotation_matrix_2D_calc()
+
+			# calculates the position on each point based on its position in a 1-D line
+			while current_agent_position < curr_line_distance:
+
+				# finds the position of the agent based on its 1-D position relative to the current point
+				init_val = (agent_counter * distribution) - curr_point
+
+				# assigns the agent's postion to a 1x2 vector in 1-D
+				agent_distribution = init_val, 0 
+
+				# adds the position of translated agent position (from 1-D to 2-D) to the current point relative to the environment
+				transformation = np.add(np.array(rotation_sim_point_array[i]), np.dot(rot_mat_2D, agent_distribution))
+
+				# converts the value to an integer
+				x_val, y_val = transformation
+				x_val = int(x_val)
+				y_val = int(y_val)
+
+				# assigns the integer vector to the distribute array
+				distribute_array = np.vstack([distribute_array,[x_val, y_val]])
+
+				# sums the agent distribution to determine the current position of each agent
+				current_agent_position += distribution
+
+				# counts each plotted agent
+				agent_counter += 1
+
+			# determines the current line segment 	
+			curr_point += (line_dist_val)
+
+		# clears the environment
+		reapply_sim()
+
+		# removes the initial [0,0] element of the distribute_array
+		distribute_array = np.delete(distribute_array,0,0)
+
+		# if an extra agent is calculated, the last agent will be removed
+		if agent_counter > agent_val_temp:
+			distribute_array = np.delete(distribute_array, agent_val_temp,0)
+
+		# converts the distribute_array array to an array of integers	
+		distribute_sim_array = distribute_array.astype(int)
+
+		# creates a distribution array relative to the centroid
+		distribute_sim_centroid = distribute_array - (np.tile(map_center, ((agent_val_temp,1))))
+
+		# sets distribution calculator boolean to false
+		distribute_change = False
+
+		# activates the formation controller boolean to start the simulation
+		form_control = True
+
+	# if the agents overlap, an error message will occur and the user will need to input valid agent and diameter values	
+	else:
+		instruct_string = "Error in distribution: Overlapping agents detected. Please try again." + curr_instr
+		change_instruction_message(instruct_string)
+		agent_change = True
+		distribute_change = False
+		pygame.time.delay(2000)
+
+
+# =================================================================================
+# Function Name: change_status_message
+# =================================================================================
+# Description: This function changes the status window by wiping the status and
+#			   reapplying a black rectangle. Then the string argument passed 
+#			   to the function as an argument is displayed in the status window.
+#			   
+# =================================================================================
+def change_status_message(shape_msg):
+	reapply_status()
+	status_msg(shape_msg, green)
+
+
+
+# =================================================================================
+# Function Name: initial_distribution
+# =================================================================================
+# Description: This function places the initial agents relative to the centroid
+#			   position of the environment shape by placing agents on each side of 
+#			   the centroid. 
+#			   
+# =================================================================================
+def initial_distribution():
+	global P0
+	global distribute_change
+
+	# creates range for agents to distribute based on environment centroid position and number of agents
+	data_x = range(int(map_center[0] - (agent_val_temp * diameter/2)), int(map_center[0] + (agent_val_temp * diameter/2)))
+	data_y = range(int(map_center[1] - (agent_val_temp * diameter/2)), int(map_center[1] + (agent_val_temp * diameter/2)))
+
+
+	# adds the centroid positions to the agent range array
+	data_x = np.append(data_x,map_center[0])
+	data_y = np.append(data_y,map_center[1])
+
+	# randomizes agents along environment centroid
+	shuff_x = random.sample(data_x, agent_val_temp)
+	shuff_y = random.sample(data_y, agent_val_temp)
+	P0 = np.column_stack((shuff_x, shuff_y))
+	distribute_change = True
+
+
+N=2 # 2D space
+R=np.matrix([[1,0],[0,1]]) # Rotation Matrix
+h=0.05 # Fromation Controller gain 
+time.sleep(2)
+global D
+global A
+
+
+def form_init(Z,P):
+	global D
+	global A
+	global M
+
+	M = agent_val_temp
+	nOnes = np.ones((M, 1)).ravel() # Create an array of ones   
+	#A =  np.zeros((M,M)) + np.diag(nOnes[0:-1], -1) + np.diag(nOnes[0:-1], 1) + np.diag(nOnes[0:1], M-1) + np.diag(nOnes[0:1], 1-M) + np.eye(M)
+	#A = np.ones((M,M)) - np.eye(M)
+	p_dist=distance.pdist(P)
+	p_dist=distance.squareform(p_dist)
+	A=np.ones((M,M))
+	A=A*(p_dist<comm_range)  # Adjacency Matrix based on the communication range
+	# Adjacency matrix with ring topology
+	D=np.diag((np.dot(A,np.ones((M,1)).ravel()))) # Degree matrix
+	L=D-A  # Laplacian matrix
+	b=np.dot(L,Z)
+	#Z_1=np.reshape(Z,(1,2*M))
+	#b_1=np.dot((np.kron(L,(np.eye(2)))),Z_1.T) # (L \kron I)Z
+
+	#b=np.reshape(b_1,(M,N)) # Encoded formation matrix
+	return b
+
+
+
+def form_controller_init(b,P):
+	P1=(1-h)*P + h*np.dot(np.dot(inv(D),A),P) + h*np.dot(np.dot(inv(D),b),R) # The formation controller
+	#P1=np.around(P1)
+	#Pnew=P1.astype(int)
+	#P_diff=P-(np.dot((P-P1),np.matrix([[1,0],[0,-1]]))) # Transforming to screen coordinates
+	#newP=Pnew-np.tile(Pnew.mean(0)-map_center,(M,1))  # Subtracting the mean to eliminate the shift
+	P1=P1-np.tile(P1.mean(0)-map_center,(M,1))  # Subtracting the mean to eliminate the shift
+
+	return P1
+
+
+
+# array initializations
+map_center = np.zeros((1,2), dtype = 'int')
+rot_mat_2D = np.zeros((2,2), dtype = 'float')
+agent_distribution = np.zeros((1,2), dtype = 'int')
+transformation = np.zeros((1,2), dtype = 'int')
+
+def main():
+	global curr_instr
+	global interfaceExit
+	global line_count
+	global instruct_string
+	global line_start
+	global first_scale
+	global mouse_x
+	global mouse_y
+	global LEFT
+	global RIGHT
+	global UP
+	global DOWN
+	global Increase_1
+	global Decrease_1
+	global Shape_Confirm_1
+	global scale_change
+	global first_status
+	global left_click_counter
+	global P1
+	global time_start
+	global curr_msg
+	# main interface loop
+	while not interfaceExit:
+
+		# sets gesture/click booleans to false
+		LEFT = False
+		RIGHT = False
+		UP = False
+		DOWN = False	
+
+		# updates current instructions
+		change_instruction_message(instruct_string)
+
+		# constantly checks for input events occurring
+		for event in pygame.event.get():
+
+ 			# if there is a left-button click or wave-left...
+			if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+
+				# deactivates shape confirmation boolean
+				Shape_Confirm_1 = False
+
+				# sets the current instruction input to blank
+				curr_instr = ' '
+
+				# if left-click or wave-left while changing scale, rotation, agent, or diameter value...
+				if (scale_change or agent_change or diameter_change or rot_change): 
+					Decrease_1 = True
+					curr_instr = ' Decreasing (Rest/Release to stop)'
+
+			# if there is a right-button click or wave-right...	
+			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: 
+				
+				# deactivates shape confirmation boolean
+				Shape_Confirm_1 = False
+
+				# sets the current instruction input to blank
+				curr_instr = ' '
+
+				# if right-click or wave-right while changing scale, rotation, agent, or diameter value...
+				if (scale_change or agent_change or diameter_change or rot_change): 
+					Increase_1 = True
+					curr_instr = ' Increasing (Rest/Release to stop)'
+	
+			# if there is a scroll-up or fist-clench...
+			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 4:
+
+				# deactivates shape confirmation boolean
+				Shape_Confirm_1 = False
+
+				# activates LEFT boolean
+				LEFT = True
+
+				# determines vertices based on amount of scroll-ups or fist-clenches
+				left_click_counter += 1
+
+				# updates instruction message
+				time_start = time.time()
+
+				# update curr_instr only if in drawing mode
+				if drawing:
+					curr_instr = '   Point Plotted'
+
+				instruct_string = 'Vertices: ' + str(left_click_counter) + '  Shape Sketching in progress.. ' + curr_instr
+				change_instruction_message(instruct_string)
+				
+			# if there is scroll-down or finger-spread...	
+			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 5: 
+
+				# activates the shape confirmation boolean
+				Shape_Confirm_1 = True
+
+				# activates the RIGHT boolean
+				RIGHT = True
+
+				# deactivates all increase or decrease booleans to cease value changes
+				if Increase_1 or Decrease_1:
+					Increase_1 = False
+					Decrease_1 = False
+
+				# updates the instruction message if shape confirmation has been activated		
+				# instruct_string = 'Shape Successfully Drawn! Scroll-up or squeeze fist in environment to map shape' 
+
+				# if scroll-down or finger-spread while changing scale, rotation, agent, or diameter value...
+				if (scale_change or agent_change or diameter_change or rot_change): 
+				 	curr_instr = ' Value Confirmed'
+				change_instruction_message(instruct_string)
+
+			# if you release the left/right mouse button or rest your hand...	
+			elif event.type == pygame.MOUSEBUTTONUP and (event.button == 1 or event.button == 3):
+
+				# deactivates all increase or decrease booleans to cease value changes
+				if Increase_1 or Decrease_1:
+					Increase_1 = False
+					Decrease_1 = False
+				curr_instr = ' Rest'
+
+			# assigns current mouse position to 1x2 vector	
+			mouse_x,mouse_y = pygame.mouse.get_pos()
+
+			# checks to see if mouse resides within the grid screen
+			if grid_boundaries(mouse_x, mouse_y) and drawing:
+				
+				# if you started drawing the shape...
+				if line_start:
+					if (time.time() - time_start) > 1.5:
+						curr_instr = ' '
+						instruct_string = 'Vertices: ' + str(left_click_counter) + '  Shape Sketching in progress.. ' + curr_instr
+						change_instruction_message(instruct_string)
+						pygame.display.update()
+					drag()
+
+				# if you have plotted an second point...		
+				if line_count > 0 and first_scale:		
+					redraw()
+				
+				# if scroll-up is detected, the first_point function is called and the first point is created
+				if LEFT and line_start == False and first == True: 
+					first_point()
+				
+				# every scroll-up proceeding the initial scroll-up continues the shape drawing
+				elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 4 and line_start and first == False: 
+					add_line()
+					LEFT = False
+
+				# scroll-down results in a return to the original point and completion of shape
+				elif Shape_Confirm_1 and line_count > 0: 
+					end_shape()
+					
+			# checks boundaries when within the environment
+			elif enviro_boundaries(mouse_x, mouse_y) and enviro:
+							
+				# if left-click is detected when sim_map boolean is true, enters loop
+				if LEFT and sim_map: 
+
+					# maps the shape onto the environment
+					map_shape()
+					scale_factor()
+					if (x_value_check(scale_map_array[:,0])) == True and (y_value_check(scale_map_array[:,1])) == True:
+						shape_rotation()
+						initial_distribution()
+						curr_msg = curr_msg + ' || Scale Value: ' + str(scale_val) + ' ||  Rotation: ' + str(int(Two_D_angle_rad)) + ' degrees' + ' || Agents: ' + str(agent_val_temp) + ' || Diameter:  ' + str(diameter)
+						change_status_message(curr_msg)
+					else:
+						reapply_sim()
+						reapply_status()
+						instruct_string = 'VALUE FALLS OUT OF THE ENVIRONMENT. THE PROGRAM WILL RESET... TRY AGAIN'
+						change_instruction_message(instruct_string)
+						pygame.display.update()
+						pygame.time.delay(5000)
+						reset()
+			# if you plot the first point, the line start boolean is activated to indicate the drawing of a shape		
+			if first == False:	
+				line_start = True
+
+			# exits main loop if closed
+	 		if event.type == pygame.QUIT:
+				interfaceExit = True
+				break	
+
+		# calculates the distribution once all values are determined by the user	
+		if (distribute_change):
+			distribute()	
+	  		P1=P0
+
+		# calculates the formation controller and runs the simulation	
+		elif (form_control):
+
+			instruct_string = "Simulation is in progress..."
+			change_instruction_message(instruct_string)
+			b=form_init(distribute_sim_centroid, P1)
+			P1=form_controller_init(b,P1)
+			#P_Int = newP.astype(int)
+			reapply_sim()
+			pygame.draw.polygon(screen, blue, scale_map_array, 3)
+			# plots each individual agent on the environment
+			for j in range (agent_val_temp):
+				gfxdraw.aacircle(screen, int(P1[j,0]), int(P1[j,1]) ,(diameter), white)
+			pygame.display.update()
+			time.sleep(0.1)
+
+		pygame.display.update()	
+
+	#exits pygame	
+	pygame.quit()
+	quit()
+
+if __name__== '__main__':
+	main()
